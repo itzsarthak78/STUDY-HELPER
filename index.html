@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Study Helper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* CRITICAL FIX: Mobile view with 100dvh */
+        body {
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        
+        /* Message animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .message-fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        /* Modal backdrop */
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <!-- System prompt (hidden) -->
+    <div id="system-prompt" style="display: none;">
+        You are a web developer assistant. Output ONLY raw HTML code when asked to create components. If the user asks for explanations, provide brief, clear explanations with code examples. When showing code, wrap it in &lt;pre&gt;&lt;code&gt; blocks with appropriate syntax highlighting if possible.
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-50 modal-backdrop hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">API Settings</h2>
+                <button id="close-settings" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">API URL</label>
+                    <input type="text" id="api-url" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="https://api.openrouter.ai/v1/chat/completions">
+                    <p class="text-xs text-gray-500 mt-1">Default: OpenRouter endpoint</p>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                    <input type="password" id="api-key" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="sk-or-...">
+                    <p class="text-xs text-gray-500 mt-1">Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-500 hover:underline">OpenRouter</a></p>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Model ID</label>
+                    <input type="text" id="model-id" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="deepseek/deepseek-r1:free">
+                    <p class="text-xs text-gray-500 mt-1">Examples: deepseek/deepseek-r1:free, google/gemini-2.0-flash-exp:free</p>
+                </div>
+            </div>
+            
+            <div class="flex justify-between mt-8">
+                <button id="reset-settings" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Reset Defaults</button>
+                <button id="save-settings" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <div class="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+            <!-- Top: New Project Button -->
+            <div class="p-4 border-b border-gray-200">
+                <button id="new-project" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i>
+                    New Project
+                </button>
+            </div>
+            
+            <!-- Middle: Project List -->
+            <div class="flex-1 overflow-y-auto p-4">
+                <h3 class="font-medium text-gray-500 text-sm uppercase mb-3">Projects</h3>
+                <ul id="project-list" class="space-y-2">
+                    <!-- Projects will be loaded here -->
+                </ul>
+            </div>
+            
+            <!-- Bottom: Settings Gear -->
+            <div class="p-4 border-t border-gray-200">
+                <button id="open-settings" class="flex items-center gap-3 text-gray-700 hover:text-blue-600 w-full p-3 rounded-lg hover:bg-gray-50">
+                    <i class="fas fa-cog text-lg"></i>
+                    <span class="font-medium">Settings</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center gap-2">
+                    <div class="flex gap-1.5">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <span id="current-project" class="ml-4 font-medium text-gray-800">New Project</span>
+                </div>
+                
+                <div class="flex items-center gap-4">
+                    <div class="flex bg-gray-100 rounded-lg p-1">
+                        <button id="preview-toggle" class="px-4 py-2 rounded-md font-medium bg-white shadow text-blue-600">Preview</button>
+                        <button id="code-toggle" class="px-4 py-2 rounded-md font-medium text-gray-600 hover:text-gray-800">Code</button>
+                    </div>
+                    
+                    <button id="download-btn" class="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium">
+                        <i class="fas fa-download"></i>
+                        Download
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Content Area -->
+            <div class="flex-1 overflow-hidden flex">
+                <!-- Chat Container -->
+                <div id="chat-container" class="flex-1 overflow-y-auto p-6">
+                    <div id="chat-messages" class="max-w-4xl mx-auto space-y-6">
+                        <!-- Messages will appear here -->
+                        <div class="text-center py-12 text-gray-500">
+                            <i class="fas fa-robot text-4xl mb-4 text-blue-500"></i>
+                            <h3 class="text-xl font-medium mb-2">AI Study Helper</h3>
+                            <p>Start a conversation by typing below</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Preview/Code Panel (Initially hidden) -->
+                <div id="preview-panel" class="w-1/2 border-l border-gray-200 overflow-hidden flex-col hidden">
+                    <div class="bg-gray-800 text-white p-4 flex justify-between items-center">
+                        <h3 class="font-medium">Preview</h3>
+                        <button id="close-preview" class="text-gray-300 hover:text-white">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-auto p-4 bg-white">
+                        <div id="preview-content">
+                            <!-- Preview content will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer: Input Area -->
+            <footer class="bg-white border-t border-gray-200 p-4 flex-shrink-0">
+                <div class="max-w-4xl mx-auto flex gap-3">
+                    <div class="flex-1 relative">
+                        <textarea 
+                            id="message-input" 
+                            placeholder="Ask for help with your project, request code, or explanations..."
+                            class="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none pr-12"
+                            rows="1"
+                            oninput="this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';"
+                        ></textarea>
+                        <button id="send-button" class="absolute right-3 bottom-3 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        // ====================
+        // CRITICAL FIX: API Configuration
+        // ====================
+        const DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+        const DEFAULT_MODEL = "deepseek/deepseek-r1:free";
+        const SYSTEM_PROMPT = "You are a web developer assistant. Output ONLY raw HTML code when asked to create components. If the user asks for explanations, provide brief, clear explanations with code examples. When showing code, wrap it in <pre><code> blocks with appropriate syntax highlighting if possible. Keep responses concise and practical.";
+        
+        // ====================
+        // State Management
+        // ====================
+        const state = {
+            currentProjectId: null,
+            projects: [],
+            settings: {
+                apiUrl: DEFAULT_API_URL,
+                apiKey: "",
+                model: DEFAULT_MODEL
+            },
+            viewMode: "preview" // "preview" or "code"
+        };
+        
+        // ====================
+        // DOM Elements
+        // ====================
+        const elements = {
+            // Settings modal
+            settingsModal: document.getElementById('settings-modal'),
+            closeSettings: document.getElementById('close-settings'),
+            openSettings: document.getElementById('open-settings'),
+            saveSettings: document.getElementById('save-settings'),
+            resetSettings: document.getElementById('reset-settings'),
+            apiUrl: document.getElementById('api-url'),
+            apiKey: document.getElementById('api-key'),
+            modelId: document.getElementById('model-id'),
+            
+            // Chat
+            messageInput: document.getElementById('message-input'),
+            sendButton: document.getElementById('send-button'),
+            chatMessages: document.getElementById('chat-messages'),
+            
+            // Projects
+            newProject: document.getElementById('new-project'),
+            projectList: document.getElementById('project-list'),
+            currentProject: document.getElementById('current-project'),
+            
+            // Preview/Code panel
+            previewToggle: document.getElementById('preview-toggle'),
+            codeToggle: document.getElementById('code-toggle'),
+            previewPanel: document.getElementById('preview-panel'),
+            previewContent: document.getElementById('preview-content'),
+            closePreview: document.getElementById('close-preview'),
+            downloadBtn: document.getElementById('download-btn'),
+            
+            // Containers
+            chatContainer: document.getElementById('chat-container')
+        };
+        
+        // ====================
+        // Initialization
+        // ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            setupEventListeners();
+            renderProjects();
+            setupAutoResize();
+            
+            // If no current project, create one
+            if (!state.currentProjectId && state.projects.length === 0) {
+                createNewProject();
+            }
+        });
+        
+        // ====================
+        // State Persistence
+        // ====================
+        function loadState() {
+            const savedState = localStorage.getItem('aiStudyHelperState');
+            if (savedState) {
+                const parsed = JSON.parse(savedState);
+                state.projects = parsed.projects || [];
+                state.currentProjectId = parsed.currentProjectId;
+                state.settings = {
+                    ...state.settings,
+                    ...(parsed.settings || {})
+                };
+            }
+            
+            // Apply settings to UI
+            elements.apiUrl.value = state.settings.apiUrl;
+            elements.apiKey.value = state.settings.apiKey;
+            elements.modelId.value = state.settings.model;
+        }
+        
+        function saveState() {
+            localStorage.setItem('aiStudyHelperState', JSON.stringify({
+                projects: state.projects,
+                currentProjectId: state.currentProjectId,
+                settings: state.settings
+            }));
+        }
+        
+        // ====================
+        // Project Management
+        // ====================
+        function createNewProject() {
+            const projectId = Date.now().toString();
+            const projectName = `Project ${state.projects.length + 1}`;
+            
+            const newProject = {
+                id: projectId,
+                name: projectName,
+                messages: [],
+                createdAt: new Date().toISOString()
+            };
+            
+            state.projects.push(newProject);
+            state.currentProjectId = projectId;
+            elements.currentProject.textContent = projectName;
+            
+            // Clear chat messages
+            elements.chatMessages.innerHTML = `
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-robot text-4xl mb-4 text-blue-500"></i>
+                    <h3 class="text-xl font-medium mb-2">${projectName}</h3>
+                    <p>Start a conversation by typing below</p>
+                </div>
+            `;
+            
+            renderProjects();
+            saveState();
+        }
+        
+        function switchProject(projectId) {
+            const project = state.projects.find(p => p.id === projectId);
+            if (!project) return;
+            
+            state.currentProjectId = projectId;
+            elements.currentProject.textContent = project.name;
+            
+            // Render messages
+            renderMessages(project.messages);
+            saveState();
+        }
+        
+        function renderProjects() {
+            elements.projectList.innerHTML = '';
+            
+            state.projects.forEach(project => {
+                const isActive = project.id === state.currentProjectId;
+                const projectElement = document.createElement('li');
+                projectElement.className = `project-item rounded-lg p-3 cursor-pointer transition-colors ${isActive ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'hover:bg-gray-50'}`;
+                projectElement.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-medium truncate">${project.name}</h4>
+                            <p class="text-xs text-gray-500">${new Date(project.createdAt).toLocaleDateString()}</p>
+                        </div>
+                        <span class="text-xs bg-gray-100 px-2 py-1 rounded">${project.messages.length}</span>
+                    </div>
+                `;
+                
+                projectElement.addEventListener('click', () => switchProject(project.id));
+                elements.projectList.appendChild(projectElement);
+            });
+        }
+        
+        // ====================
+        // Message Handling
+        // ====================
+        async function sendMessage() {
+            const messageText = elements.messageInput.value.trim();
+            if (!messageText) return;
+            
+            // Clear input
+            elements.messageInput.value = '';
+            elements.messageInput.style.height = 'auto';
+            
+            // Get current project
+            const project = state.projects.find(p => p.id === state.currentProjectId);
+            if (!project) return;
+            
+            // Add user message
+            const userMessage = {
+                id: Date.now().toString(),
+                role: 'user',
+                content: messageText,
+                timestamp: new Date().toISOString()
+            };
+            
+            project.messages.push(userMessage);
+            renderMessage(userMessage);
+            
+            // Create and add placeholder for AI response
+            const aiMessageId = (Date.now() + 1).toString();
+            const aiMessage = {
+                id: aiMessageId,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString(),
+                isStreaming: true
+            };
+            
+            project.messages.push(aiMessage);
+            const aiMessageElement = renderMessage(aiMessage);
+            
+            // Save state
+            saveState();
+            
+            // Scroll to bottom
+            scrollToBottom();
+            
+            try {
+                // Prepare API request
+                const response = await fetch(state.settings.apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.settings.apiKey}`,
+                        'HTTP-Referer': window.location.origin,
+                        'X-Title': 'AI Study Helper'
+                    },
+                    body: JSON.stringify({
+                        model: state.settings.model,
+                        messages: [
+                            { role: 'system', content: SYSTEM_PROMPT },
+                            ...project.messages
+                                .filter(m => m.role !== 'system')
+                                .map(m => ({ role: m.role, content: m.content }))
+                        ],
+                        stream: false
+                    })
+                });
+                
+                // ====================
+                // CRITICAL FIX: Anti-crash JSON logic
+                // ====================
+                const responseText = await response.text();
+                
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} - ${responseText}`);
+                }
+                
+                const data = JSON.parse(responseText);
+                
+                // Update AI message with response
+              
